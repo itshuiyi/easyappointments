@@ -54,6 +54,51 @@ tasks.register("deployStatus") {
         println "Use 'gradle -b .\\deploy\\deploy.gradle deployLogs' to watch logs"
     }
 }
+tasks.register("deployVerify") {
+    group = "deployment"
+    description = "Verify containers are up and app responds with the expected content"
+    doLast {
+        // prefer BASE_URL from env; default to localhost:8080
+        def base = (System.getenv('BASE_URL') ?: 'http://localhost:8080').toString()
+        def rootUrl = base.replaceAll('/+$','')              // trim trailing slash
+        def candidates = [
+            rootUrl,                                        // /
+            rootUrl + "/index.php/install"                  // installer (first run)
+        ]
+
+        boolean ok = false
+        for (u in candidates) {
+            println "Checking ${u} ..."
+            HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection()
+            c.setConnectTimeout(15000)
+            c.setReadTimeout(15000)
+            c.setInstanceFollowRedirects(true)
+
+            int code = c.getResponseCode()
+            // read body (if any)
+            def stream = (code >= 400 ? c.getErrorStream() : c.getInputStream())
+            String body = stream?.getText('UTF-8') ?: ""
+
+            // accept 200/302 and look for app keywords
+            if ((code == 200 || code == 302) &&
+                (body.toLowerCase().contains("easy") || body.toLowerCase().contains("appointment"))) {
+                println "✓ ${u} returned ${code} and looks like Easy!Appointments"
+                ok = true
+                break
+            } else {
+                println "… got HTTP ${code}; trying next URL (if any)"
+            }
+        }
+
+        if (!ok) {
+            throw new RuntimeException(
+                "App didn't return expected content. " +
+                "Tip: run 'docker compose -f deploy/docker-compose.yml --env-file .env logs --tail=200 app'"
+            )
+        }
+        println "✅ Deployment verified."
+    }
+}
 
 tasks.register("deployStaging") {
     group = "deployment"
@@ -61,3 +106,4 @@ tasks.register("deployStaging") {
     dependsOn "deployUp"
     finalizedBy "deployStatus"
 }
+
