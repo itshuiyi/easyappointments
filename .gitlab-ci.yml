@@ -4,30 +4,55 @@ stages:
   - deploy
 
 variables:
-  COMPOSER_HOME: "$CI_PROJECT_DIR/.composer"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx1024m"
 
-before_script:
-  - apt-get update -y
-  - apt-get install -y unzip git curl php-cli php-mbstring php-xml composer
+# Cache for Gradle, Composer, and Node dependencies
+cache:
+  key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+  paths:
+    - .gradle/
+    - vendor/
+    - node_modules/
 
 build:
   stage: build
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update -y
+    - apt-get install -y curl git unzip zip nodejs npm openjdk-17-jdk php-cli php-mbstring php-gd php-curl php-mysql php-xml composer
+    - chmod +x gradlew
+    - ./gradlew --version
   script:
-    - composer install --no-interaction
+    # Clean & build project
+    - ./gradlew clean build --no-daemon
   artifacts:
     paths:
-      - vendor/
+      - build/libs/  # adjust if your Gradle build produces a different folder
+    expire_in: 1 week
 
 test:
   stage: test
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update -y
+    - apt-get install -y php-cli php-mbstring php-gd php-curl php-mysql php-xml unzip git composer
+    - composer install --prefer-dist --no-interaction
   script:
-    - echo "No tests defined yet"
-  allow_failure: true
+    - ./gradlew phpUnitTest --no-daemon
+  artifacts:
+    when: always
+    paths:
+      - build/test-logs
+    expire_in: 1 week
+  dependencies:
+    - build
 
 deploy:
   stage: deploy
   script:
-    - echo "Deployment step placeholder"
+    - echo "🚀 Deployment step placeholder"
   environment:
     name: staging
     url: http://staging.example.com
+  dependencies:
+    - build
